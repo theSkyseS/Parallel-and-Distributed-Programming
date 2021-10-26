@@ -3,92 +3,107 @@ package com.company;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-public class Mapper {
+public class Mapper implements Runnable {
+    private static int count = 0;
 
-    private Map<String, List<String>> classMap;
-    private final Scanner sc;
-    //private CountDownLatch latch;
-    //private ReentrantLock reLock;
+    private final Path poisonPill = Path.of("./src/com/company/Main.java");
+    private final Map<String, List<String>> classMap;
+    private final BlockingQueue<Path> inQueue;
+    private final BlockingQueue<Map<String, List<String>>> outQueue;
+    private final CountDownLatch latch;
+    private final int ThreadNumber;
 
-    public Mapper(Path javaFile/*, CountDownLatch latch, ReentrantLock reLock, Map<String, List<String>> classMap*/) throws IOException {
-        //this.classMap = classMap;
+
+    public Mapper(final CountDownLatch latch, final BlockingQueue<Path> inQueue, final BlockingQueue<Map<String, List<String>>> outQueue) {
+        this.inQueue = inQueue;
+        this.outQueue = outQueue;
+        this.latch = latch;
         this.classMap = new HashMap<>();
-        //this.latch = latch;
-        this.sc = new Scanner(javaFile);
-        //this.reLock = reLock;
+        count++;
+        ThreadNumber = count;
     }
 
-    /*public Map<String, List<String>> getClassMap() {
-        return classMap;
-    }*/
-
-
-    public Map<String, List<String>> run() {
-        sc.useDelimiter("\\Z");
-        String code;
-        synchronized (sc) {
+    public void run() {
+        Path taken;
+        while (true) {
+            Scanner sc;
+            try {
+                taken = inQueue.take();
+                System.out.println("Thread " + ThreadNumber + " taken file: " + taken);
+                if (taken.equals(this.poisonPill)) {
+                    outQueue.add(classMap);
+                    System.out.println("Poison pill taken by " + ThreadNumber);
+                    latch.countDown();
+                    System.out.println("Latch Count Down" + latch.getCount());
+                    return;
+                }
+                sc = new Scanner(taken);
+            } catch (IOException e) {
+                e.printStackTrace();
+                break;
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                Thread.currentThread().interrupt();
+                break;
+            }
+            sc.useDelimiter("\\Z");
+            String code;
             try {
                 code = sc.next();
             } catch (NoSuchElementException e) {
-                //latch.countDown();
-                return classMap;
+                e.printStackTrace();
+                break;
             }
-        }
-        Pattern classRegex = Pattern.compile("^(?:(static\\s+)?(abstract\\s+)?((public|private|protected)\\s+)?(static\\s+)?(abstract\\s+)?)?(?:class|interface)\\s+(?<class>\\w+(<.*?(?<=>(\\s|.$))+)?)\\s*(extends\\s+(?<extends>\\w*(<.*?>+)?))?\\s*(implements\\s+(?<implements>(\\w+(<.*>+)?(,\\s+)?)*))?", Pattern.MULTILINE);
-        Matcher matcher = classRegex.matcher(code);
-        //try {
-            while (matcher.find()) {
+
+            Pattern classRegex = Pattern.compile("^(?:(static\\s+)?(abstract\\s+)?((public|private|protected)\\s+)?(static\\s+)?(abstract\\s+)?)?(?:class|interface)\\s+(?<class>\\w+(<.*?(?<=>(\\s|.$))+)?)\\s*(extends\\s+(?<extends>\\w*(<.*?>+)?))?\\s*(implements\\s+(?<implements>(\\w+(<.*>+)?(,\\s+)?)*))?", Pattern.MULTILINE);
+            Matcher matcher = classRegex.matcher(code);
+            try {
+                while (matcher.find()) {
                     String classString = matcher.group("class");
                     String extendsString = matcher.group("extends");
                     String implementsString = matcher.group("implements");
 
-                    if (classString == null)  {
+                    if (classString == null) {
                         continue;
                     }
 
                     if (extendsString != null) {
-                        //try {
-                            extendsString = extendsString.trim();
-                            //reLock.lock();
-                            if (!classMap.containsKey(extendsString)) {
-                                List<String> putList = new ArrayList<>();
-                                putList.add(classString);
-                                classMap.put(extendsString, putList);
-                            } else {
-                                classMap.get(extendsString).add(classString);
-                            }
-                       /* } finally {
-                            reLock.unlock();
-                        }*/
+                        extendsString = extendsString.trim();
+                        putMerge(classMap, classString, extendsString);
                     }
-                if (implementsString != null) {
-                    //try {
+
+                    if (implementsString != null) {
                         List<String> implementes = Arrays.stream(implementsString.replaceAll("\\s+", "").split(" ")).flatMap(x -> Arrays.stream(StringExt.split(x, "(?:<.*?>)|(?<semicolon>,)", "semicolon"))).collect(Collectors.toList());
-                        //reLock.lock();
                         for (String implement : implementes) {
                             if (implement.length() == 0) continue;
-                            if (!classMap.containsKey(implement)) {
-                                List<String> putList = new ArrayList<>();
-                                putList.add(classString);
-                                classMap.put(implement, putList);
-                            } else {
-                                classMap.get(implement).add(classString);
-                            }
+                            putMerge(classMap, classString, implement);
                         }
-                    /*} finally {
-                        reLock.unlock();
-                    }*/
+                    }
                 }
+            } catch (Exception e) {
+                break;
             }
-        /*} finally {
-            latch.countDown();
-        }*/
-        return classMap;
+        }
+        latch.countDown();
+        System.out.println("Latch Count Down" + latch.getCount());
+        outQueue.add(classMap);
+        Thread.currentThread().interrupt();
     }
+
+    private static void putMerge(final Map<String, List<String>> classMap, final String classString, final String implement) {
+        if (!classMap.containsKey(implement)) {
+            List<String> putList = new ArrayList<>();
+            putList.add(classString);
+            classMap.put(implement, putList);
+        } else {
+            classMap.get(implement).add(classString);
+        }
+    }
+
 }

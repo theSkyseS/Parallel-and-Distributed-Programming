@@ -8,49 +8,61 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
-import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.Function;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class Main {
 
+    private static final int THREAD_COUNT = 16;
+
     public static void main(String[] args) throws IOException, InterruptedException {
         List<Path> javaFiles = Files.walk(Path.of("../spring-framework-main")).filter(Files::isRegularFile).filter(x -> x.getFileName().toString().endsWith(".java")).collect(Collectors.toList());
-        ExecutorService service = Executors.newFixedThreadPool(4);
+        Path poisonPill = Path.of("./src/com/company/Main.java");
+        BlockingQueue<Path> fileQueue = new ArrayBlockingQueue<>(javaFiles.size() + THREAD_COUNT);
+        BlockingQueue<Map<String, List<String>>> classMapQueue = new LinkedBlockingQueue<>();
 
-        //CountDownLatch latch = new CountDownLatch(javaFiles.size());
-        //ReentrantLock lock = new ReentrantLock();
-        List<Future<Map<String, List<String>>>> futuresList = new ArrayList<>();
         Map<String, List<String>> classMap = new HashMap<>();
         for (var javaFile : javaFiles) {
-            Future<Map<String, List<String>>> future = service.submit(() -> new Mapper(javaFile).run());
-            futuresList.add(future);
-            //Mapper mapper = new Mapper(javaFile, latch, lock, classMap);
-            //mapper.run();
+            fileQueue.put(javaFile);
+        }
+        for (int i = 0; i < THREAD_COUNT; i++) {
+            fileQueue.put(poisonPill);
         }
 
-        for (var future : futuresList) {
-            try {
-                for (var entry : future.get().entrySet()) {
-                    String key = entry.getKey();
-                    if (classMap.containsKey(key)) {
-                        classMap.get(key).addAll(entry.getValue());
-                    } else {
-                        classMap.put(entry.getKey(), entry.getValue());
-                    }
-                }
-            } catch (ExecutionException e) {
-                e.printStackTrace();
-            }
+        CountDownLatch latch = new CountDownLatch(THREAD_COUNT);
+
+        for (int i = 0; i < THREAD_COUNT; i++) {
+            new Thread(new Mapper(latch, fileQueue, classMapQueue)).start();
         }
-        //latch.await();
-        classMap.forEach((x, y) -> {
+
+        latch.await();
+        System.out.println("Latch awaited count:" + latch.getCount());
+        classMapQueue.forEach(x -> putMergeAll(classMap, x));
+        classMapQueue.forEach(x -> System.out.println(x.size()));
+        printMap(classMap);
+    }
+
+    public static void printMap(final Map<String, List<String>> map) {
+        AtomicInteger counter = new AtomicInteger();
+        map.forEach((x, y) -> {
             System.out.println(x + ": ");
-            y.forEach(z -> System.out.println("   " + z));
+            y.forEach(z -> {
+                counter.getAndIncrement();
+                System.out.println("   " + z);
+            });
             System.out.println();
         });
-        System.out.println(classMap.size());
-        System.out.println((Integer) classMap.values().stream().map(List::size).mapToInt(x -> x).sum());
-        service.shutdown();
+        System.out.println(map.size());
+        System.out.println(counter);
+    }
+
+    private static void putMergeAll(final Map<String, List<String>> map, final Map<String, List<String>> mapToPut) {
+        mapToPut.forEach((key, value) -> {
+            if (!map.containsKey(key)) {
+                map.put(key, value);
+            } else {
+                map.get(key).addAll(value);
+            }
+        });
     }
 }
