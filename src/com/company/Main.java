@@ -18,7 +18,7 @@ public class Main {
         for(var javaFile: javaFiles) {
             Mapper mapper = new Mapper(javaFile, latch);
             mapper.run();
-            classMap.putAll(mapper.getClassMap());
+            putMergeAll(classMap, mapper.getClassMap());
         }
         latch.await();
         classMap.forEach((x, y) -> {
@@ -28,4 +28,15 @@ public class Main {
         });
         System.out.println(classMap.size());
     }
+
+    private static void putMergeAll(final Map<String, List<String>> map, final Map<String, List<String>> mapToPut) {
+        mapToPut.forEach((key, value) -> {
+            if (!map.containsKey(key)) {
+                map.put(key, value);
+            } else {
+                map.get(key).addAll(value);
+            }
+        });
+    }
+
 }
