@@ -23,11 +23,13 @@ public class Main {
         List<Future<Map<String, List<String>>>> futuresList = new ArrayList<>();
         Map<String, List<String>> classMap = new HashMap<>();
         for (var javaFile : javaFiles) {
-            Future<Map<String, List<String>>> future = service.submit(() -> new Mapper(javaFile).run());
+            Future<Map<String, List<String>>> future = service.submit(() -> Mapper.run(javaFile));
             futuresList.add(future);
             //Mapper mapper = new Mapper(javaFile, latch, lock, classMap);
             //mapper.run();
         }
+
+        service.shutdown();
 
         for (var future : futuresList) {
             try {
@@ -51,6 +53,5 @@ public class Main {
         });
         System.out.println(classMap.size());
         System.out.println((Integer) classMap.values().stream().map(List::size).mapToInt(x -> x).sum());
-        service.shutdown();
     }
 }

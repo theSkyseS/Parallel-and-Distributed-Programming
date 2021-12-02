@@ -11,7 +11,6 @@ public class StringExt {
         Pattern pattern = Pattern.compile(regex);
         Matcher m = pattern.matcher(input);
 
-        // Add segments before each match found
         while (m.find()) {
             {
                 int end = m.start(group);
