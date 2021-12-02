@@ -3,42 +3,51 @@ package com.company;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class Main {
 
-    private static final int THREAD_COUNT = 16;
+    public static final int THREAD_COUNT = 16;
 
     public static void main(String[] args) throws IOException, InterruptedException {
-        List<Path> javaFiles = Files.walk(Path.of("../spring-framework-main")).filter(Files::isRegularFile).filter(x -> x.getFileName().toString().endsWith(".java")).collect(Collectors.toList());
-        Path poisonPill = Path.of("./src/com/company/Main.java");
-        BlockingQueue<Path> fileQueue = new ArrayBlockingQueue<>(javaFiles.size() + THREAD_COUNT);
+        List<Optional<Path>> javaFiles = Files.walk(Path.of("../spring-framework-main"))
+                .filter(Files::isRegularFile)
+                .filter(x -> x.getFileName().toString().endsWith(".java"))
+                .map(Optional::of)
+                .collect(Collectors.toList());
+        BlockingQueue<Optional<Path>> fileQueue = new ArrayBlockingQueue<>(20);
         BlockingQueue<Map<String, List<String>>> classMapQueue = new LinkedBlockingQueue<>();
+        List<Map<String, List<String>>> classMapList = new ArrayList<>();
 
         Map<String, List<String>> classMap = new HashMap<>();
-        for (var javaFile : javaFiles) {
-            fileQueue.put(javaFile);
-        }
-        for (int i = 0; i < THREAD_COUNT; i++) {
-            fileQueue.put(poisonPill);
-        }
-
-        CountDownLatch latch = new CountDownLatch(THREAD_COUNT);
 
         for (int i = 0; i < THREAD_COUNT; i++) {
-            new Thread(new Mapper(latch, fileQueue, classMapQueue)).start();
+            new Thread(new Mapper(fileQueue, classMapQueue)).start();
         }
 
-        latch.await();
-        System.out.println("Latch awaited count:" + latch.getCount());
-        classMapQueue.forEach(x -> putMergeAll(classMap, x));
-        classMapQueue.forEach(x -> System.out.println(x.size()));
+        new Thread(() -> {
+            try {
+                for (var javaFile : javaFiles) {
+                    fileQueue.put(javaFile);
+                }
+                for (int i = 0; i < Main.THREAD_COUNT; i++) {
+                    fileQueue.put(Optional.empty());
+                }
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }).start();
+
+        for(int i=0; i < THREAD_COUNT; i++) {
+            classMapList.add(classMapQueue.take());
+        }
+
+        classMapList.forEach(x -> putMergeAll(classMap, x));
+        classMapList.forEach(x -> System.out.println(x.size()));
+
         printMap(classMap);
     }
 

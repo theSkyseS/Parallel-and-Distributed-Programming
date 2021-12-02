@@ -12,38 +12,31 @@ import java.util.stream.Collectors;
 public class Mapper implements Runnable {
     private static int count = 0;
 
-    private final Path poisonPill = Path.of("./src/com/company/Main.java");
-    private final Map<String, List<String>> classMap;
-    private final BlockingQueue<Path> inQueue;
+    private Map<String, List<String>> classMap;
+    private final BlockingQueue<Optional<Path>> inQueue;
     private final BlockingQueue<Map<String, List<String>>> outQueue;
-    private final CountDownLatch latch;
     private final int ThreadNumber;
 
 
-    public Mapper(final CountDownLatch latch, final BlockingQueue<Path> inQueue, final BlockingQueue<Map<String, List<String>>> outQueue) {
+    public Mapper(final BlockingQueue<Optional<Path>> inQueue, final BlockingQueue<Map<String, List<String>>> outQueue) {
         this.inQueue = inQueue;
         this.outQueue = outQueue;
-        this.latch = latch;
         this.classMap = new HashMap<>();
         count++;
         ThreadNumber = count;
     }
 
     public void run() {
-        Path taken;
+        Optional<Path> taken;
         while (true) {
             Scanner sc;
             try {
                 taken = inQueue.take();
-                System.out.println("Thread " + ThreadNumber + " taken file: " + taken);
-                if (taken.equals(this.poisonPill)) {
-                    outQueue.add(classMap);
+                if (taken.isEmpty()) {
                     System.out.println("Poison pill taken by " + ThreadNumber);
-                    latch.countDown();
-                    System.out.println("Latch Count Down" + latch.getCount());
-                    return;
+                    break;
                 }
-                sc = new Scanner(taken);
+                sc = new Scanner(taken.get());
             } catch (IOException e) {
                 e.printStackTrace();
                 break;
@@ -90,8 +83,6 @@ public class Mapper implements Runnable {
                 break;
             }
         }
-        latch.countDown();
-        System.out.println("Latch Count Down" + latch.getCount());
         outQueue.add(classMap);
         Thread.currentThread().interrupt();
     }
