@@ -7,7 +7,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class ClassCountMapper
-        extends Mapper<Object, Text, Text, TextArrayWritable> {
+        extends Mapper<Object, Text, Text, Text> {
     public void map(final Object key, final Text value, final Context context)
             throws IOException, InterruptedException {
         Pattern classRegex = Pattern
@@ -26,12 +26,11 @@ public final class ClassCountMapper
             if (classString == null) {
                 continue;
             }
-            TextArrayWritable textList = new TextArrayWritable();
-            textList.set(new Text[]{new Text(classString)});
 
+            Text classText = new Text(classString);
             if (extendsString != null) {
                 extendsString = extendsString.trim();
-                context.write(new Text(extendsString), textList);
+                context.write(new Text(extendsString), classText);
             }
 
             if (implementsString != null) {
@@ -43,7 +42,7 @@ public final class ClassCountMapper
                         .filter(x -> x.length() > 0)
                         .forEach(implement -> {
                             try {
-                                context.write(new Text(implement), textList);
+                                context.write(new Text(implement), classText);
                             } catch (IOException | InterruptedException e) {
                                 e.printStackTrace();
                             }
